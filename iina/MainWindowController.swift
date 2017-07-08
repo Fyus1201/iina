@@ -378,8 +378,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     w.setIsVisible(true)
 
-    //videoView.translatesAutoresizingMaskIntoConstraints = false
-    //quickConstrants(["H:|-0-[v]-0-|", "V:|-0-[v]-0-|"], ["v": videoView])
+    videoView.translatesAutoresizingMaskIntoConstraints = false
+    quickConstraints(["H:|-0-[v]-0-|", "V:|-0-[v]-0-|"], ["v": videoView])
 
     videoView.videoLayer.display()
 
@@ -1035,6 +1035,17 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     playSlider.trackingAreas.forEach(playSlider.removeTrackingArea)
   }
 
+  func customWindowsToEnterFullScreen(for window: NSWindow) -> [NSWindow]? {
+    return [self.window!]
+  }
+
+  func window(_ window: NSWindow, startCustomAnimationToEnterFullScreenOn screen: NSScreen, withDuration duration: TimeInterval) {
+    NSAnimationContext.runAnimationGroup({ context in
+      context.duration = duration
+      window.animator().setFrame(screen.frame, display: true)
+    }, completionHandler: nil)
+  }
+
   func windowWillEnterFullScreen(_ notification: Notification) {
     playerCore.mpvController.setFlag(MPVOption.Window.keepaspect, true)
 
@@ -1058,6 +1069,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     setWindowFloatingOnTop(false)
 
     isInFullScreen = true
+  }
+
+  func windowDidEnterFullScreen(_ notification: Notification) {
+
   }
 
   func windowWillExitFullScreen(_ notification: Notification) {
@@ -1101,48 +1116,18 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
       videoView.videoLayer.draw()
     }
 
-    // update videoview size if in full screen, since aspect ratio may changed
-    if (isInFullScreen && !isInPIP) {
-
-      // Let mpv decide where to draw
-      /*
-      let aspectRatio = w.aspectRatio.width / w.aspectRatio.height
-      let tryHeight = wSize.width / aspectRatio
-      if tryHeight <= wSize.height {
-        // should have black bar above and below
-        let targetHeight = wSize.width / aspectRatio
-        let yOffset = (wSize.height - targetHeight) / 2
-        videoView.frame = NSMakeRect(0, yOffset, wSize.width, targetHeight)
-      } else if tryHeight > wSize.height {
-        // should have black bar left and right
-        let targetWidth = wSize.height * aspectRatio
-        let xOffset = (wSize.width - targetWidth) / 2
-        videoView.frame = NSMakeRect(xOffset, 0, targetWidth, wSize.height)
-      }
-      */
-
-      videoView.frame = NSRect(x: 0, y: 0, width: w.frame.width, height: w.frame.height)
-
-    } else if (!isInPIP) {
-
+    // if is in interactive mode
+    if (isInInteractiveMode && !isInFullScreen && !isInPIP) {
       let frame = NSRect(x: 0, y: 0, width: w.contentView!.frame.width, height: w.contentView!.frame.height)
+      let origWidth = CGFloat(playerCore.info.videoWidth!)
+      let origHeight = CGFloat(playerCore.info.videoHeight!)
 
-      if isInInteractiveMode {
-
-        let origWidth = CGFloat(playerCore.info.videoWidth!)
-        let origHeight = CGFloat(playerCore.info.videoHeight!)
-
-        // if is in interactive mode
-        let videoRect: NSRect, interactiveModeFrame: NSRect
-        (videoRect, interactiveModeFrame) = videoViewSizeInInteractiveMode(frame, currentCrop: currentCrop, originalSize: NSMakeSize(origWidth, origHeight))
-        cropSettingsView.cropBoxView.resized(with: videoRect)
-        videoView.frame = interactiveModeFrame
-
-      } else {
-        videoView.frame = frame
-      }
-
+      let videoRect: NSRect, interactiveModeFrame: NSRect
+      (videoRect, interactiveModeFrame) = videoViewSizeInInteractiveMode(frame, currentCrop: currentCrop, originalSize: NSMakeSize(origWidth, origHeight))
+      cropSettingsView.cropBoxView.resized(with: videoRect)
+      videoView.frame = interactiveModeFrame
     }
+
     // update control bar position
     if oscPosition == .floating {
       let cph = ud.float(forKey: PK.controlBarPositionHorizontal)
@@ -1403,6 +1388,13 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
   }
 
   func enterInteractiveMode() {
+    // remove constraints on video view
+    videoView.superview?.constraints.forEach { constraint in
+      if constraint.firstItem === videoView || constraint.secondItem === videoView {
+        videoView.superview?.removeConstraint(constraint)
+      }
+    }
+
     playerCore.togglePause(true)
     isInInteractiveMode = true
     hideUI()
@@ -1466,6 +1458,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
   }
 
   func exitInteractiveMode(_ then: @escaping () -> Void) {
+    quickConstraints(["H:|-0-[v]-0-|", "V:|-0-[v]-0-|"], ["v": videoView])
     playerCore.togglePause(false)
     isInInteractiveMode = false
     cropSettingsView.cropBoxView.isHidden = true
@@ -2001,7 +1994,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     timePreviewWhenSeek.frame.origin = CGPoint(
       x: round(sender.knobPointPosition() - timePreviewWhenSeek.frame.width / 2),
       y: playSlider.frame.origin.y + 16)
-    timePreviewWhenSeek.stringValue = (playerCore.info.videoDuration! * percentage * 0.01).stringRepresentation
+    if let duration = playerCore.info.videoDuration {
+      timePreviewWhenSeek.stringValue = (duration * percentage * 0.01).stringRepresentation
+    }
     playerCore.seek(percent: percentage, forceExact: true)
   }
 
