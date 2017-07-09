@@ -1387,21 +1387,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     self.fadeableViews.append(titleBarView)
   }
 
+  private var constraintInteractiveModeAspect: NSLayoutConstraint!
+  private var constraintInteractiveModeTop: NSLayoutConstraint!
+  private var constraintInteractiveModeBottom: NSLayoutConstraint!
+  private var constraintInteractiveModeCenter: NSLayoutConstraint!
+
   func enterInteractiveMode() {
-    // remove constraints on video view
-    videoView.superview?.constraints.forEach { constraint in
-      if constraint.firstItem === videoView || constraint.secondItem === videoView {
-        videoView.superview?.removeConstraint(constraint)
-      }
-    }
-
-    playerCore.togglePause(true)
-    isInInteractiveMode = true
-    hideUI()
-    bottomView.isHidden = false
-    bottomView.addSubview(cropSettingsView.view)
-    quickConstraints(["H:|[v]|", "V:|[v]|"], ["v": cropSettingsView.view])
-
     // get original frame
     let origWidth = CGFloat(playerCore.info.videoWidth!)
     let origHeight = CGFloat(playerCore.info.videoHeight!)
@@ -1409,8 +1400,26 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     let currWidth = CGFloat(playerCore.info.displayWidth!)
     let currHeight = CGFloat(playerCore.info.displayHeight!)
     let winFrame = window!.frame
-    let videoViewFrame: NSRect
     let videoRect: NSRect
+
+    // remove constraints on video view
+    videoView.superview?.constraints.forEach { constraint in
+      if constraint.firstItem === videoView || constraint.secondItem === videoView {
+        videoView.superview?.removeConstraint(constraint)
+      }
+    }
+    constraintInteractiveModeAspect = NSLayoutConstraint(item: videoView, attribute: .width, relatedBy: .equal, toItem: videoView, attribute: .height, multiplier: CGFloat(currWidth/currHeight), constant: 0)
+    constraintInteractiveModeCenter = NSLayoutConstraint(item: videoView, attribute: .centerX, relatedBy: .equal, toItem: videoView.superview, attribute: .centerX, multiplier: 1, constant: 0)
+    constraintInteractiveModeTop = NSLayoutConstraint(item: videoView, attribute: .top, relatedBy: .equal, toItem: videoView.superview, attribute: .top, multiplier: 1, constant: 0)
+    constraintInteractiveModeBottom = NSLayoutConstraint(item: videoView, attribute: .bottom, relatedBy: .equal, toItem: videoView.superview, attribute: .bottom, multiplier: 1, constant: 0)
+    NSLayoutConstraint.activate([constraintInteractiveModeAspect, constraintInteractiveModeTop, constraintInteractiveModeCenter, constraintInteractiveModeBottom])
+
+    playerCore.togglePause(true)
+    isInInteractiveMode = true
+    hideUI()
+    bottomView.isHidden = false
+    bottomView.addSubview(cropSettingsView.view)
+    quickConstraints(["H:|[v]|", "V:|[v]|"], ["v": cropSettingsView.view])
 
     // get current cropped region
     if let cropFilter = playerCore.info.cropFilter {
@@ -1432,9 +1441,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
       window!.aspectRatio = winFrameWithOrigVideoSize.size
       window!.setFrame(winFrameWithOrigVideoSize, display: true, animate: false)
-      (videoRect, videoViewFrame) = videoViewSizeInInteractiveMode(winFrameWithOrigVideoSize, currentCrop: currentCrop, originalSize: origSize)
+      (videoRect, _) = videoViewSizeInInteractiveMode(winFrameWithOrigVideoSize, currentCrop: currentCrop, originalSize: origSize)
     } else {
-      (videoRect, videoViewFrame) = videoViewSizeInInteractiveMode(videoView.frame, currentCrop: currentCrop, originalSize: origSize)
+      (videoRect, _) = videoViewSizeInInteractiveMode(videoView.frame, currentCrop: currentCrop, originalSize: origSize)
     }
 
     // add crop setting view
@@ -1450,7 +1459,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
       context.duration = 0.2
       context.timingFunction = CAMediaTimingFunction(name: kCAMediaTimingFunctionEaseIn)
       bottomBarBottomConstraint.animator().constant = 0
-      videoView.animator().frame = videoViewFrame
+      constraintInteractiveModeTop.animator().constant = 24
+      constraintInteractiveModeBottom.animator().constant = -84
     }) {
       self.cropSettingsView.cropBoxView.isHidden = false
     }
@@ -1458,16 +1468,20 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
   }
 
   func exitInteractiveMode(_ then: @escaping () -> Void) {
-    quickConstraints(["H:|-0-[v]-0-|", "V:|-0-[v]-0-|"], ["v": videoView])
     playerCore.togglePause(false)
     isInInteractiveMode = false
     cropSettingsView.cropBoxView.isHidden = true
+
     NSAnimationContext.runAnimationGroup({ (context) in
       context.duration = 0.2
       context.timingFunction = CAMediaTimingFunction(name: kCAMediaTimingFunctionEaseIn)
       bottomBarBottomConstraint.animator().constant = -bottomViewHeight
-      videoView.animator().frame = NSMakeRect(0, 0, window!.contentView!.frame.width, window!.contentView!.frame.height)
+      constraintInteractiveModeTop.animator().constant = 0
+      constraintInteractiveModeBottom.animator().constant = 0
     }) {
+      self.videoView.removeConstraint(self.constraintInteractiveModeAspect)
+      self.videoView.superview?.removeConstraints([self.constraintInteractiveModeTop, self.constraintInteractiveModeCenter, self.constraintInteractiveModeBottom])
+      self.quickConstraints(["H:|-0-[v]-0-|", "V:|-0-[v]-0-|"], ["v": self.videoView])
       self.cropSettingsView.cropBoxView.removeFromSuperview()
       self.sideBarStatus = .hidden
       self.bottomView.subviews.removeAll()
